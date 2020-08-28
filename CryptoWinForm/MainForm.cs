@@ -16,6 +16,9 @@ namespace CryptoWinForm
 {
     public partial class MainForm : Form
     {
+        private static readonly Regex BASE64_LINE = new Regex(@"^[A-Za-z\d+/]+$", RegexOptions.Compiled);
+        private static readonly int DECODED_BUFFER_LENGTH = 5700;
+        private static readonly int ENCODED_LINE_BLOCK_COUNT = 100;
         private X509CertSelection _selectedCert;
         private FileInfo _sourceFile = null;
         private DirectoryInfo _sourceDirectory;
@@ -425,11 +428,33 @@ namespace CryptoWinForm
             long totalBytes = 0L;
             try
             {
-                using (FileStream inputStream = sourceFile.Open(FileMode.Open, FileAccess.Read))
+                using (TempFile tempFile = new TempFile())
                 {
-                    // TODO: Need to base-64 decode to a temp file, first
-                    using (FileStream outputStream = targetFile.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite))
-                        totalBytes = Decrypt(pk, inputStream, outputStream);
+                    using (StreamReader reader = sourceFile.OpenText())
+                    {
+                        using (Base64LineReader bReader = new Base64LineReader(reader))
+                        {
+                            byte[] buffer = bReader.getNext();
+                            if (null != buffer)
+                            {
+                                using (FileStream stream = tempFile.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite))
+                                {
+                                    do
+                                    {
+                                        stream.Write(buffer, 0, buffer.Length);
+                                    }
+                                    while (null != (buffer = bReader.getNext()));
+                                    stream.Flush();
+                                }
+                            }
+                        }
+                    }
+                    using (FileStream inputStream = tempFile.Open(FileMode.Open, FileAccess.Read))
+                    {
+                        // TODO: Need to base-64 decode to a temp file, first
+                        using (FileStream outputStream = targetFile.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite))
+                            totalBytes = Decrypt(pk, inputStream, outputStream);
+                    }
                 }
             }
             catch (Exception exc)
